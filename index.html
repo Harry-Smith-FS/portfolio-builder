@@ -114,6 +114,13 @@
                 if (!resp.ok) throw new Error('Failed to fetch investments');
                 return resp.json();
             },
+            async fetchModels() {
+                const resp = await fetch(`${SUPABASE_URL}/rest/v1/models?select=*&active=eq.true`, {
+                    headers: { 'apikey': SUPABASE_ANON_KEY, 'Authorization': `Bearer ${SUPABASE_ANON_KEY}` }
+                });
+                if (!resp.ok) throw new Error('Failed to fetch models');
+                return resp.json();
+            },
             async fetchSharedPortfolios() {
                 const resp = await fetch(`${SUPABASE_URL}/rest/v1/shared_portfolios?select=*&order=created_at.desc`, {
                     headers: { 'apikey': SUPABASE_ANON_KEY, 'Authorization': `Bearer ${SUPABASE_ANON_KEY}` }
@@ -177,8 +184,8 @@
         const savePortfolioToStorage = (name, data) => { try { const p = getSavedPortfolios(); p[name] = { ...data, savedAt: new Date().toISOString() }; localStorage.setItem(STORAGE_KEY, JSON.stringify(p)); return true; } catch (e) { return false; } };
         const deletePortfolioFromStorage = (name) => { try { const p = getSavedPortfolios(); delete p[name]; localStorage.setItem(STORAGE_KEY, JSON.stringify(p)); return true; } catch (e) { return false; } };
 
-        const calculateAccountTotals = (allocations, balance, customInvestments = {}, merOverrides = {}) => {
-            const allInvestments = { ...INVESTMENTS, ...customInvestments };
+        const calculateAccountTotals = (allocations, balance, customInvestments = {}, merOverrides = {}, baseInvestments = INVESTMENTS) => {
+            const allInvestments = { ...baseInvestments, ...customInvestments };
             let totalAllocation = 0, weightedMER = 0, totalGrowth = 0, totalDefensive = 0;
             const assetClassBreakdown = {};
             Object.entries(allocations).forEach(([name, pct]) => {
@@ -193,8 +200,8 @@
             return { totalAllocation, weightedMER, totalGrowth: totalGrowth * 100, totalDefensive: totalDefensive * 100, totalFees: balance * weightedMER, assetClassBreakdown };
         };
 
-        const getModelAllocations = (accountType, balance, isESG, riskProfile) => {
-            const model = MODELS[getModelKey(accountType, getBalanceRange(balance), isESG)];
+        const getModelAllocations = (accountType, balance, isESG, riskProfile, baseModels = MODELS) => {
+            const model = baseModels[getModelKey(accountType, getBalanceRange(balance), isESG)];
             return model?.[riskProfile] ? {...model[riskProfile]} : {};
         };
 
@@ -264,7 +271,7 @@
         // ============================================
         // INVESTMENT COMPARISON MODAL
         // ============================================
-        function InvestmentComparisonModal({ isOpen, onClose, baseline, accounts, customInvestments, merOverrides }) {
+        function InvestmentComparisonModal({ isOpen, onClose, baseline, accounts, customInvestments, merOverrides, investmentsData }) {
             const [selectedAccountId, setSelectedAccountId] = React.useState(null);
             const [showOnlyChanges, setShowOnlyChanges] = React.useState(false);
 
@@ -276,8 +283,8 @@
 
             if (!isOpen || !baseline) return null;
 
-            const allInvestments = { ...INVESTMENTS, ...customInvestments };
-            const baselineInvestments = { ...INVESTMENTS, ...baseline.customInvestments };
+            const allInvestments = { ...investmentsData, ...customInvestments };
+            const baselineInvestments = { ...investmentsData, ...baseline.customInvestments };
 
             // Find matching baseline account
             const currentAccount = accounts.find(a => a.id === selectedAccountId);
@@ -627,21 +634,21 @@
         // ============================================
         // ACCOUNT PANEL
         // ============================================
-        function AccountPanel({ account, onUpdate, onRemove, canRemove, customInvestments, merOverrides, onMerChange, merUnlocked, onUnlockMer, baselineTotals }) {
+        function AccountPanel({ account, onUpdate, onRemove, canRemove, customInvestments, merOverrides, onMerChange, merUnlocked, onUnlockMer, baselineTotals, investmentsData, modelsData }) {
             const profileLabels = { conservative: 'Conservative', balanced: 'Balanced', growth: 'Growth', highGrowth: 'High Growth' };
             const isSuper = account.accountType === 'accumulation';
             const availableProfiles = React.useMemo(() => (account.accountType === 'pension' && getBalanceRange(account.balance) === '750k-plus') ? ['conservative', 'balanced', 'growth'] : ['conservative', 'balanced', 'growth', 'highGrowth'], [account.accountType, account.balance]);
-            const allInvestments = { ...INVESTMENTS, ...customInvestments };
-            const totals = React.useMemo(() => calculateAccountTotals(account.allocations, account.balance, customInvestments, merOverrides), [account.allocations, account.balance, customInvestments, merOverrides]);
+            const allInvestments = { ...investmentsData, ...customInvestments };
+            const totals = React.useMemo(() => calculateAccountTotals(account.allocations, account.balance, customInvestments, merOverrides, investmentsData), [account.allocations, account.balance, customInvestments, merOverrides, investmentsData]);
             const [investmentToAdd, setInvestmentToAdd] = React.useState('');
             const [showCharts, setShowCharts] = React.useState(true);
             const [showCustomModal, setShowCustomModal] = React.useState(false);
 
-            const loadModel = () => { const n = getModelAllocations(account.accountType, account.balance, account.isESG, account.riskProfile); onUpdate({ ...account, allocations: n, recommendedAllocations: n }); };
-            React.useEffect(() => { if (Object.keys(account.allocations).length === 0) loadModel(); }, []);
+            const loadModel = () => { const n = getModelAllocations(account.accountType, account.balance, account.isESG, account.riskProfile, modelsData); onUpdate({ ...account, allocations: n, recommendedAllocations: n }); };
+            React.useEffect(() => { if (Object.keys(account.allocations).length === 0) loadModel(); }, [modelsData]);
             React.useEffect(() => { if (!availableProfiles.includes(account.riskProfile)) onUpdate({ ...account, riskProfile: availableProfiles[availableProfiles.length - 1] }); }, [availableProfiles]);
 
-            const handleSettingChange = (f, v) => { const u = { ...account, [f]: v }; const n = getModelAllocations(f === 'accountType' ? v : account.accountType, f === 'balance' ? v : account.balance, f === 'isESG' ? v : account.isESG, f === 'riskProfile' ? v : account.riskProfile); u.allocations = n; u.recommendedAllocations = n; onUpdate(u); };
+            const handleSettingChange = (f, v) => { const u = { ...account, [f]: v }; const n = getModelAllocations(f === 'accountType' ? v : account.accountType, f === 'balance' ? v : account.balance, f === 'isESG' ? v : account.isESG, f === 'riskProfile' ? v : account.riskProfile, modelsData); u.allocations = n; u.recommendedAllocations = n; onUpdate(u); };
             const handleAutoBalance = () => {
                 const diff = 100 - totals.totalAllocation; if (Math.abs(diff) < 0.1) return;
                 const cashKey = Object.keys(account.allocations).find(k => k === 'CASH');
@@ -878,6 +885,11 @@ function App() {
             const [savingShare, setSavingShare] = React.useState(false);
             const [shareMessage, setShareMessage] = React.useState('');
 
+            // Dynamic data from Supabase (fallback to hardcoded constants)
+            const [investmentsData, setInvestmentsData] = React.useState(INVESTMENTS);
+            const [modelsData, setModelsData] = React.useState(MODELS);
+            const [dataLoading, setDataLoading] = React.useState(true);
+
             const [platform, setPlatform] = React.useState('HUB24');
             const [platformOther, setPlatformOther] = React.useState('');
             const [adviserName, setAdviserName] = React.useState('');
@@ -899,6 +911,32 @@ function App() {
 
             React.useEffect(() => { setSavedPortfoliosList(Object.keys(getSavedPortfolios())); }, []);
 
+            // Load investments and models from Supabase on mount
+            React.useEffect(() => {
+                setDataLoading(true);
+                Promise.all([
+                    supabase.fetchInvestments(),
+                    supabase.fetchModels()
+                ]).then(([investmentsRows, modelsRows]) => {
+                    // Transform investments array to object format
+                    const invData = investmentsRows.reduce((acc, row) => {
+                        acc[row.name] = { mer: row.mer, growth: row.growth, defensive: row.defensive, assetClass: row.asset_class };
+                        return acc;
+                    }, {});
+                    setInvestmentsData(invData);
+
+                    // Transform models array to object format
+                    const modData = modelsRows.reduce((acc, row) => {
+                        acc[row.model_key] = row.allocations;
+                        return acc;
+                    }, {});
+                    setModelsData(modData);
+                    console.log('Loaded', Object.keys(invData).length, 'investments and', Object.keys(modData).length, 'models from Supabase');
+                }).catch(error => {
+                    console.error('Error loading data from Supabase, using defaults:', error);
+                }).finally(() => setDataLoading(false));
+            }, []);
+
             // Load shared portfolios from Supabase on mount
             React.useEffect(() => {
                 setLoadingSharedPortfolios(true);
@@ -911,11 +949,11 @@ function App() {
 
             const combinedTotals = React.useMemo(() => {
                 let totalBalance = 0, totalFees = 0;
-                accounts.forEach(a => { const t = calculateAccountTotals(a.allocations, a.balance, customInvestments, merOverrides); totalBalance += a.balance; totalFees += t.totalFees; });
+                accounts.forEach(a => { const t = calculateAccountTotals(a.allocations, a.balance, customInvestments, merOverrides, investmentsData); totalBalance += a.balance; totalFees += t.totalFees; });
                 let weightedGrowth = 0, weightedDefensive = 0, weightedMER = 0;
-                if (totalBalance > 0) accounts.forEach(a => { const t = calculateAccountTotals(a.allocations, a.balance, customInvestments, merOverrides); weightedGrowth += (a.balance / totalBalance) * t.totalGrowth; weightedDefensive += (a.balance / totalBalance) * t.totalDefensive; weightedMER += (a.balance / totalBalance) * t.weightedMER; });
+                if (totalBalance > 0) accounts.forEach(a => { const t = calculateAccountTotals(a.allocations, a.balance, customInvestments, merOverrides, investmentsData); weightedGrowth += (a.balance / totalBalance) * t.totalGrowth; weightedDefensive += (a.balance / totalBalance) * t.totalDefensive; weightedMER += (a.balance / totalBalance) * t.weightedMER; });
                 return { totalBalance, totalFees, weightedGrowth, weightedDefensive, weightedMER };
-            }, [accounts, customInvestments, merOverrides]);
+            }, [accounts, customInvestments, merOverrides, investmentsData]);
 
             const baselineAccountTotals = React.useMemo(() => {
                 if (!baseline) return {};
@@ -971,8 +1009,8 @@ function App() {
             const handleDeletePortfolio = () => { if (!selectedSavedPortfolio || !confirm(`Delete "${selectedSavedPortfolio}"?`)) return; deletePortfolioFromStorage(selectedSavedPortfolio); setSavedPortfoliosList(Object.keys(getSavedPortfolios())); setSelectedSavedPortfolio(''); };
 
             const handleExport = (format) => {
-                const allInvestments = { ...INVESTMENTS, ...customInvestments };
-                const baselineInvestments = baseline ? { ...INVESTMENTS, ...baseline.customInvestments } : {};
+                const allInvestments = { ...investmentsData, ...customInvestments };
+                const baselineInvestments = baseline ? { ...investmentsData, ...baseline.customInvestments } : {};
                 let html = '';
 
                 if (format === 'roa' && baseline) {
@@ -1151,7 +1189,7 @@ return (
                     <main className="max-w-7xl mx-auto px-6 py-6">
                         {baseline && <ComparisonSummary current={combinedTotals} baseline={baseline.totals} onClear={handleClearSnapshot} onViewDetails={() => setShowComparisonModal(true)} savedAt={baseline.savedAt} />}
 
-                        <InvestmentComparisonModal isOpen={showComparisonModal} onClose={() => setShowComparisonModal(false)} baseline={baseline} accounts={accounts} customInvestments={customInvestments} merOverrides={merOverrides} />
+                        <InvestmentComparisonModal isOpen={showComparisonModal} onClose={() => setShowComparisonModal(false)} baseline={baseline} accounts={accounts} customInvestments={customInvestments} merOverrides={merOverrides} investmentsData={investmentsData} />
 
                         <div className="bg-white rounded-xl shadow-sm border border-fs-slate-200 p-5 mb-6 no-print">
                             <h2 className="font-heading font-semibold text-fs-slate-800 mb-4">Client & Transaction Details</h2>
@@ -1187,7 +1225,7 @@ return (
                             </div>
                         </div>
 
-                        {accounts.map(a => <AccountPanel key={a.id} account={a} onUpdate={updateAccount} onRemove={() => removeAccount(a.id)} canRemove={accounts.length > 1} customInvestments={customInvestments} merOverrides={merOverrides} onMerChange={handleMerChange} merUnlocked={merUnlocked} onUnlockMer={handleMerUnlock} baselineTotals={baselineAccountTotals[a.id]} />)}
+                        {accounts.map(a => <AccountPanel key={a.id} account={a} onUpdate={updateAccount} onRemove={() => removeAccount(a.id)} canRemove={accounts.length > 1} customInvestments={customInvestments} merOverrides={merOverrides} onMerChange={handleMerChange} merUnlocked={merUnlocked} onUnlockMer={handleMerUnlock} baselineTotals={baselineAccountTotals[a.id]} investmentsData={investmentsData} modelsData={modelsData} />)}
 
                         <div className="bg-white rounded-xl shadow-sm border border-fs-slate-200 p-5 mb-6 no-print">
                             <h2 className="font-heading font-semibold text-fs-slate-800 mb-3">Notes for Paraplanner</h2>
@@ -1204,7 +1242,7 @@ return (
                         <SharedPortfoliosModal isOpen={showSharedPortfoliosModal} onClose={() => setShowSharedPortfoliosModal(false)} onLoad={handleLoadSharedPortfolio} portfolios={sharedPortfolios} loading={loadingSharedPortfolios} />
                     </main>
 
-                    <footer className="border-t border-fs-slate-200 py-6 no-print"><div className="max-w-7xl mx-auto px-6 text-center"><p className="text-fs-slate-400 text-sm">Ford Scott Portfolio Builder v14.0.0 • February 2026</p></div></footer>
+                    <footer className="border-t border-fs-slate-200 py-6 no-print"><div className="max-w-7xl mx-auto px-6 text-center"><p className="text-fs-slate-400 text-sm">Ford Scott Portfolio Builder v15.0.0 • February 2026</p></div></footer>
                 </div>
             );
         }
