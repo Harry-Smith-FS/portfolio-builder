@@ -1,269 +1,299 @@
 /**
  * Ford Scott Portfolio Builder
- * Main Application Component
- *
- * This is a placeholder during migration. Features will be progressively
- * extracted from the monolithic index.html into this modular structure.
+ * Main Application Component - Integrated Version
  */
 
-import React from 'react';
+import React, { useState, useEffect } from 'react';
+import { usePortfolio } from './hooks/usePortfolio';
+import { useSupabase } from './hooks/useSupabase';
+import { useLocalStorage } from './hooks/useLocalStorage';
+import { AccountCard } from './components/accounts';
+import { AllocationChart, AllocationBar } from './components/charts';
+import { Button, Card, Input, Badge, Tabs } from './components/common';
 import { Icons } from './components/common';
-import {
-  INVESTMENTS,
-  MODELS,
-  ASSET_CLASS_COLORS,
-  RISK_PROFILE_RANGES
-} from './data';
-import {
-  formatCurrency,
-  formatPercent,
-  getBalanceRange,
-  calculateAccountTotals
-} from './utils';
-import {
-  fetchInvestments,
-  fetchModels,
-  fetchSharedPortfolios
-} from './api/supabase';
+import { ValidationWarnings, GrowthDefensiveBar } from './components/portfolio';
+import { ShareToTeamModal, SharedPortfoliosModal, ExportDropdown } from './components/modals';
+import { formatCurrency, formatPercent } from './utils';
+import { INVESTMENTS, MODELS } from './data';
 
 function App() {
-  const [investmentsData, setInvestmentsData] = React.useState(INVESTMENTS);
-  const [modelsData, setModelsData] = React.useState(MODELS);
-  const [loading, setLoading] = React.useState(true);
-  const [error, setError] = React.useState(null);
+  // Load data from Supabase
+  const {
+    investments,
+    models,
+    sharedPortfolios,
+    loading: dataLoading,
+    error: dataError,
+    investmentCount,
+    modelCount
+  } = useSupabase();
 
-  // Load data from Supabase on mount
-  React.useEffect(() => {
-    const loadData = async () => {
-      try {
-        const [investments, models] = await Promise.all([
-          fetchInvestments(),
-          fetchModels()
-        ]);
+  // Portfolio state management
+  const {
+    accounts,
+    accountTotals,
+    combinedTotals,
+    addAccount,
+    updateAccount,
+    removeAccount,
+    loadModel,
+    updateHolding,
+    baseline,
+    saveBaseline,
+    restoreBaseline,
+    clearBaseline,
+    hasBaseline,
+    resetPortfolio
+  } = usePortfolio(investments, models);
 
-        // Transform investments array to object format
-        const invData = investments.reduce((acc, row) => {
-          acc[row.name] = {
-            mer: row.mer,
-            growth: row.growth,
-            defensive: row.defensive,
-            assetClass: row.asset_class
-          };
-          return acc;
-        }, {});
-        setInvestmentsData(invData);
+  // Local storage
+  const { savedPortfolios, savePortfolio, loadPortfolio, deletePortfolio } = useLocalStorage();
 
-        // Transform models array to object format
-        const modData = models.reduce((acc, row) => {
-          acc[row.model_key] = row.allocations;
-          return acc;
-        }, {});
-        setModelsData(modData);
+  // Client details state
+  const [clientName, setClientName] = useState('');
+  const [platform, setPlatform] = useState('HUB24');
+  const [transactionType, setTransactionType] = useState('Switch');
+  const [priority, setPriority] = useState('Normal');
+  const [notes, setNotes] = useState('');
 
-        console.log('✅ Loaded', Object.keys(invData).length, 'investments and', Object.keys(modData).length, 'models from Supabase');
-      } catch (err) {
-        console.error('⚠️ Error loading from Supabase, using defaults:', err);
-        setError(err.message);
-      } finally {
-        setLoading(false);
-      }
-    };
+  // UI state
+  const [activeTab, setActiveTab] = useState('builder');
+  const [showShareModal, setShowShareModal] = useState(false);
+  const [showSharedPortfolios, setShowSharedPortfolios] = useState(false);
 
-    loadData();
-  }, []);
-
-  // Example calculation using extracted utilities
-  const exampleTotals = React.useMemo(() => {
-    const exampleAllocations = {
-      "LONSEC LISTED MANAGED PORTFOLIO - BALANCED": 60,
-      "DNR CAPITAL AUSTRALIAN EQUITIES HIGH CONVICTION PORTFOLIO": 15,
-      "Aoris International Fund (BAOR)": 10,
-      "Macquarie Dynamic Bond Fund": 10,
-      "CASH": 5
-    };
-    return calculateAccountTotals(exampleAllocations, 500000, {}, {}, investmentsData);
-  }, [investmentsData]);
+  // Loading state
+  if (dataLoading) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="text-center">
+          <Icons.Refresh className="w-8 h-8 animate-spin text-fs-teal mx-auto mb-4" />
+          <p className="text-gray-600">Loading portfolio data...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <div className="min-h-screen bg-fs-slate-50">
+    <div className="min-h-screen bg-gray-50">
       {/* Header */}
-      <header className="bg-white border-b border-fs-slate-200 sticky top-0 z-50">
-        <div className="border-t-4 border-fs-teal-600"></div>
-        <div className="max-w-7xl mx-auto px-6 py-4">
+      <header className="bg-white border-b border-gray-200 sticky top-0 z-50">
+        <div className="max-w-7xl mx-auto px-4 py-4">
           <div className="flex items-center justify-between">
             <div>
-              <h1 className="font-heading text-2xl font-bold text-fs-slate-800">
-                Portfolio Builder
-              </h1>
-              <p className="text-fs-slate-500 text-sm">
-                Ford Scott Financial Planning — Modular Version
-              </p>
+              <h1 className="text-2xl font-bold text-gray-900">Portfolio Builder</h1>
+              <p className="text-sm text-gray-500">Ford Scott Financial Planning</p>
             </div>
-            <div className="flex items-center gap-2">
-              <span className="px-3 py-1 bg-emerald-100 text-emerald-700 rounded-full text-xs font-medium">
-                Phase 1 Complete
-              </span>
+            <div className="flex items-center gap-3">
+              <Badge variant="success">
+                {investmentCount} Investments
+              </Badge>
+              <Badge variant="info">
+                {modelCount} Models
+              </Badge>
+              <ExportDropdown
+                accounts={accounts}
+                clientName={clientName}
+                combinedTotals={combinedTotals}
+              />
+              <Button
+                variant="primary"
+                onClick={() => setShowShareModal(true)}
+              >
+                <Icons.Share className="w-4 h-4 mr-2" />
+                Share
+              </Button>
             </div>
           </div>
         </div>
       </header>
 
-      {/* Main Content */}
-      <main className="max-w-7xl mx-auto px-6 py-8">
-        {/* Status Banner */}
-        <div className="bg-gradient-to-r from-fs-teal-700 to-fs-teal-800 rounded-xl shadow-lg p-6 mb-6 text-white">
-          <h2 className="font-heading text-xl font-semibold mb-4 flex items-center gap-2">
-            <Icons.ShieldCheck /> Migration Status
-          </h2>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            <div className="bg-white/10 rounded-lg p-4">
-              <p className="text-fs-teal-200 text-xs uppercase mb-1">Data Files</p>
-              <p className="text-2xl font-bold">✅ 4</p>
-              <p className="text-xs text-white/70">investments, models, config, index</p>
-            </div>
-            <div className="bg-white/10 rounded-lg p-4">
-              <p className="text-fs-teal-200 text-xs uppercase mb-1">Utilities</p>
-              <p className="text-2xl font-bold">✅ 4</p>
-              <p className="text-xs text-white/70">formatting, calculations, storage, index</p>
-            </div>
-            <div className="bg-white/10 rounded-lg p-4">
-              <p className="text-fs-teal-200 text-xs uppercase mb-1">API</p>
-              <p className="text-2xl font-bold">✅ 1</p>
-              <p className="text-xs text-white/70">supabase client</p>
-            </div>
-            <div className="bg-white/10 rounded-lg p-4">
-              <p className="text-fs-teal-200 text-xs uppercase mb-1">Components</p>
-              <p className="text-2xl font-bold">✅ 1</p>
-              <p className="text-xs text-white/70">Icons (19 icons)</p>
-            </div>
+      <main className="max-w-7xl mx-auto px-4 py-6">
+        {/* Client Details */}
+        <Card className="mb-6">
+          <div className="p-4 border-b border-gray-100">
+            <h2 className="font-semibold text-gray-900">Client Details</h2>
           </div>
-        </div>
+          <div className="p-4 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            <Input
+              label="Client Name"
+              value={clientName}
+              onChange={(e) => setClientName(e.target.value)}
+              placeholder="Enter client name"
+            />
+            <Input
+              label="Platform"
+              value={platform}
+              onChange={(e) => setPlatform(e.target.value)}
+              as="select"
+            >
+              <option value="HUB24">HUB24</option>
+              <option value="Netwealth">Netwealth</option>
+              <option value="BT Panorama">BT Panorama</option>
+              <option value="Colonial First State">Colonial First State</option>
+            </Input>
+            <Input
+              label="Transaction Type"
+              value={transactionType}
+              onChange={(e) => setTransactionType(e.target.value)}
+              as="select"
+            >
+              <option value="Switch">Switch</option>
+              <option value="New Investment">New Investment</option>
+              <option value="Withdrawal">Withdrawal</option>
+              <option value="Rebalance">Rebalance</option>
+            </Input>
+            <Input
+              label="Priority"
+              value={priority}
+              onChange={(e) => setPriority(e.target.value)}
+              as="select"
+            >
+              <option value="Normal">Normal</option>
+              <option value="Urgent">Urgent</option>
+              <option value="Low">Low</option>
+            </Input>
+          </div>
+        </Card>
 
-        {/* Data Loading Status */}
-        <div className="bg-white rounded-xl shadow-sm border border-fs-slate-200 p-6 mb-6">
-          <h3 className="font-heading font-semibold text-fs-slate-800 mb-4 flex items-center gap-2">
-            <Icons.Refresh className={loading ? 'animate-spin' : ''} />
-            Supabase Connection
-          </h3>
-          {loading ? (
-            <p className="text-fs-slate-500">Loading data from Supabase...</p>
-          ) : error ? (
-            <div className="flex items-start gap-2 p-3 bg-amber-50 border border-amber-200 rounded-lg">
-              <Icons.AlertTriangle className="text-amber-600 flex-shrink-0 mt-0.5" />
+        {/* Portfolio Summary */}
+        <Card className="mb-6">
+          <div className="p-4 border-b border-gray-100">
+            <h2 className="font-semibold text-gray-900">Portfolio Summary</h2>
+          </div>
+          <div className="p-4">
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-4">
               <div>
-                <p className="text-amber-800 font-medium">Using fallback data</p>
-                <p className="text-amber-600 text-sm">{error}</p>
+                <p className="text-xs text-gray-500 uppercase">Total Balance</p>
+                <p className="text-2xl font-bold text-gray-900">
+                  {formatCurrency(combinedTotals.totalBalance)}
+                </p>
               </div>
-            </div>
-          ) : (
-            <div className="flex items-start gap-2 p-3 bg-emerald-50 border border-emerald-200 rounded-lg">
-              <Icons.Check className="text-emerald-600 flex-shrink-0 mt-0.5" />
               <div>
-                <p className="text-emerald-800 font-medium">Connected successfully</p>
-                <p className="text-emerald-600 text-sm">
-                  Loaded {Object.keys(investmentsData).length} investments and {Object.keys(modelsData).length} models
+                <p className="text-xs text-gray-500 uppercase">Weighted MER</p>
+                <p className="text-2xl font-bold text-gray-900">
+                  {formatPercent(combinedTotals.weightedMER)}
+                </p>
+              </div>
+              <div>
+                <p className="text-xs text-gray-500 uppercase">Annual Fees</p>
+                <p className="text-2xl font-bold text-fs-gold">
+                  {formatCurrency(combinedTotals.annualFees)}
+                </p>
+              </div>
+              <div>
+                <p className="text-xs text-gray-500 uppercase">Growth</p>
+                <p className="text-2xl font-bold text-green-600">
+                  {formatPercent(combinedTotals.growthPercent)}
+                </p>
+              </div>
+              <div>
+                <p className="text-xs text-gray-500 uppercase">Defensive</p>
+                <p className="text-2xl font-bold text-blue-600">
+                  {formatPercent(combinedTotals.defensivePercent)}
                 </p>
               </div>
             </div>
-          )}
-        </div>
-
-        {/* Example Calculations */}
-        <div className="bg-white rounded-xl shadow-sm border border-fs-slate-200 p-6 mb-6">
-          <h3 className="font-heading font-semibold text-fs-slate-800 mb-4 flex items-center gap-2">
-            <Icons.TrendingUp /> Example Calculation (Utilities Working)
-          </h3>
-          <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-            <div>
-              <p className="text-fs-slate-500 text-xs uppercase mb-1">Balance</p>
-              <p className="text-lg font-semibold text-fs-slate-800">{formatCurrency(500000)}</p>
-            </div>
-            <div>
-              <p className="text-fs-slate-500 text-xs uppercase mb-1">Allocation</p>
-              <p className="text-lg font-semibold text-fs-slate-800">{exampleTotals.totalAllocation.toFixed(1)}%</p>
-            </div>
-            <div>
-              <p className="text-fs-slate-500 text-xs uppercase mb-1">Growth</p>
-              <p className="text-lg font-semibold text-fs-teal-700">{exampleTotals.totalGrowth.toFixed(1)}%</p>
-            </div>
-            <div>
-              <p className="text-fs-slate-500 text-xs uppercase mb-1">Weighted MER</p>
-              <p className="text-lg font-semibold text-fs-slate-800">{formatPercent(exampleTotals.weightedMER)}</p>
-            </div>
-            <div>
-              <p className="text-fs-slate-500 text-xs uppercase mb-1">Annual Fees</p>
-              <p className="text-lg font-semibold text-fs-gold-600">{formatCurrency(exampleTotals.totalFees)}</p>
-            </div>
+            <GrowthDefensiveBar
+              growth={combinedTotals.growthPercent}
+              defensive={combinedTotals.defensivePercent}
+            />
           </div>
-        </div>
+        </Card>
 
-        {/* Icons Demo */}
-        <div className="bg-white rounded-xl shadow-sm border border-fs-slate-200 p-6 mb-6">
-          <h3 className="font-heading font-semibold text-fs-slate-800 mb-4">
-            Extracted Icons (19 total)
-          </h3>
-          <div className="flex flex-wrap gap-4">
-            {Object.entries(Icons).map(([name, Icon]) => (
-              <div key={name} className="flex items-center gap-2 px-3 py-2 bg-fs-slate-50 rounded-lg">
-                <Icon />
-                <span className="text-xs text-fs-slate-600">{name}</span>
+        {/* Baseline Actions */}
+        {hasBaseline && (
+          <Card className="mb-6 bg-amber-50 border-amber-200">
+            <div className="p-4 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Icons.AlertTriangle className="w-5 h-5 text-amber-600" />
+                <span className="text-amber-800">Baseline snapshot saved</span>
               </div>
-            ))}
-          </div>
-        </div>
-
-        {/* Asset Class Colors */}
-        <div className="bg-white rounded-xl shadow-sm border border-fs-slate-200 p-6 mb-6">
-          <h3 className="font-heading font-semibold text-fs-slate-800 mb-4">
-            Asset Class Colors (from config)
-          </h3>
-          <div className="flex flex-wrap gap-3">
-            {Object.entries(ASSET_CLASS_COLORS).map(([name, color]) => (
-              <div key={name} className="flex items-center gap-2 px-3 py-2 bg-fs-slate-50 rounded-lg">
-                <div
-                  className="w-4 h-4 rounded"
-                  style={{ backgroundColor: color }}
-                ></div>
-                <span className="text-xs text-fs-slate-600">{name}</span>
+              <div className="flex gap-2">
+                <Button variant="outline" size="sm" onClick={restoreBaseline}>
+                  Restore
+                </Button>
+                <Button variant="ghost" size="sm" onClick={clearBaseline}>
+                  Clear
+                </Button>
               </div>
-            ))}
+            </div>
+          </Card>
+        )}
+
+        {/* Accounts */}
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-lg font-semibold text-gray-900">
+            Accounts ({accounts.length})
+          </h2>
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={saveBaseline}>
+              <Icons.Camera className="w-4 h-4 mr-2" />
+              Snapshot
+            </Button>
+            <Button variant="primary" onClick={addAccount}>
+              <Icons.Plus className="w-4 h-4 mr-2" />
+              Add Account
+            </Button>
           </div>
         </div>
 
-        {/* Next Steps */}
-        <div className="bg-indigo-50 border border-indigo-200 rounded-xl p-6">
-          <h3 className="font-heading font-semibold text-indigo-800 mb-3 flex items-center gap-2">
-            <Icons.GitCompare /> Next Steps (Phase 2)
-          </h3>
-          <ul className="space-y-2 text-indigo-700">
-            <li className="flex items-center gap-2">
-              <span className="w-5 h-5 rounded bg-indigo-200 flex items-center justify-center text-xs">1</span>
-              Extract chart components (DonutChart, GrowthDefensiveBar, VolatilityMeter)
-            </li>
-            <li className="flex items-center gap-2">
-              <span className="w-5 h-5 rounded bg-indigo-200 flex items-center justify-center text-xs">2</span>
-              Extract modal components (CustomInvestmentModal, ShareToTeamModal, etc.)
-            </li>
-            <li className="flex items-center gap-2">
-              <span className="w-5 h-5 rounded bg-indigo-200 flex items-center justify-center text-xs">3</span>
-              Extract AccountPanel (largest component)
-            </li>
-            <li className="flex items-center gap-2">
-              <span className="w-5 h-5 rounded bg-indigo-200 flex items-center justify-center text-xs">4</span>
-              Migrate full App logic with hooks
-            </li>
-          </ul>
+        <div className="space-y-4">
+          {accounts.map((account, index) => (
+            <AccountCard
+              key={account.id}
+              account={account}
+              totals={accountTotals[index]}
+              investments={investments}
+              models={models}
+              onUpdate={(updates) => updateAccount(account.id, updates)}
+              onRemove={() => removeAccount(account.id)}
+              onLoadModel={() => loadModel(account.id)}
+              onUpdateHolding={(key, value) => updateHolding(account.id, key, value)}
+              canRemove={accounts.length > 1}
+            />
+          ))}
         </div>
+
+        {/* Notes */}
+        <Card className="mt-6">
+          <div className="p-4 border-b border-gray-100">
+            <h2 className="font-semibold text-gray-900">Notes</h2>
+          </div>
+          <div className="p-4">
+            <textarea
+              className="w-full p-3 border border-gray-200 rounded-lg resize-none focus:ring-2 focus:ring-fs-teal focus:border-transparent"
+              rows={3}
+              placeholder="Add any notes about this portfolio..."
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+            />
+          </div>
+        </Card>
       </main>
 
-      {/* Footer */}
-      <footer className="border-t border-fs-slate-200 py-6">
-        <div className="max-w-7xl mx-auto px-6 text-center">
-          <p className="text-fs-slate-400 text-sm">
-            Ford Scott Portfolio Builder v16.0.0 (Modular) • February 2026
-          </p>
-        </div>
-      </footer>
+      {/* Modals */}
+      {showShareModal && (
+        <ShareToTeamModal
+          isOpen={showShareModal}
+          onClose={() => setShowShareModal(false)}
+          portfolioData={{
+            clientName,
+            platform,
+            transactionType,
+            accounts,
+            combinedTotals,
+            notes
+          }}
+        />
+      )}
+
+      {showSharedPortfolios && (
+        <SharedPortfoliosModal
+          isOpen={showSharedPortfolios}
+          onClose={() => setShowSharedPortfolios(false)}
+          portfolios={sharedPortfolios}
+        />
+      )}
     </div>
   );
 }
