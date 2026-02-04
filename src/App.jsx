@@ -9,7 +9,7 @@ import { useSupabase } from './hooks/useSupabase';
 import { useLocalStorage } from './hooks/useLocalStorage';
 import { AccountCard } from './components/accounts';
 import { AllocationChart, AllocationBar } from './components/charts';
-import { Button, Card, Input, Badge, Tabs } from './components/common';
+import { Button, Card, Input, Select, Badge, Tabs } from './components/common';
 import { Icons } from './components/common';
 import { ValidationWarnings, GrowthDefensiveBar } from './components/portfolio';
 import { ShareToTeamModal, SharedPortfoliosModal, ExportDropdown } from './components/modals';
@@ -120,38 +120,38 @@ function App() {
               onChange={(e) => setClientName(e.target.value)}
               placeholder="Enter client name"
             />
-            <Input
+            <Select
               label="Platform"
               value={platform}
               onChange={(e) => setPlatform(e.target.value)}
-              as="select"
-            >
-              <option value="HUB24">HUB24</option>
-              <option value="Netwealth">Netwealth</option>
-              <option value="BT Panorama">BT Panorama</option>
-              <option value="Colonial First State">Colonial First State</option>
-            </Input>
-            <Input
+              options={[
+                { value: 'HUB24', label: 'HUB24' },
+                { value: 'Netwealth', label: 'Netwealth' },
+                { value: 'BT Panorama', label: 'BT Panorama' },
+                { value: 'Colonial First State', label: 'Colonial First State' }
+              ]}
+            />
+            <Select
               label="Transaction Type"
               value={transactionType}
               onChange={(e) => setTransactionType(e.target.value)}
-              as="select"
-            >
-              <option value="Switch">Switch</option>
-              <option value="New Investment">New Investment</option>
-              <option value="Withdrawal">Withdrawal</option>
-              <option value="Rebalance">Rebalance</option>
-            </Input>
-            <Input
+              options={[
+                { value: 'Switch', label: 'Switch' },
+                { value: 'New Investment', label: 'New Investment' },
+                { value: 'Withdrawal', label: 'Withdrawal' },
+                { value: 'Rebalance', label: 'Rebalance' }
+              ]}
+            />
+            <Select
               label="Priority"
               value={priority}
               onChange={(e) => setPriority(e.target.value)}
-              as="select"
-            >
-              <option value="Normal">Normal</option>
-              <option value="Urgent">Urgent</option>
-              <option value="Low">Low</option>
-            </Input>
+              options={[
+                { value: 'Normal', label: 'Normal' },
+                { value: 'Urgent', label: 'Urgent' },
+                { value: 'Low', label: 'Low' }
+              ]}
+            />
           </div>
         </Card>
 

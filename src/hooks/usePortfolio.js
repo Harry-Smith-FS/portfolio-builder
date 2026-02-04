@@ -1,5 +1,5 @@
 import { useState, useCallback, useMemo } from 'react';
-import { calculateAccountTotals, getModelKey, getModelAllocations } from '../utils/calculations';
+import { calculateAccountTotals, getModelAllocations } from '../utils/calculations';
 
 const createDefaultAccount = (id = 1) => ({
   id,
@@ -26,26 +26,32 @@ export function usePortfolio(investmentsData = {}, modelsData = {}) {
   // Calculate totals for each account
   const accountTotals = useMemo(() => {
     return accounts.map(account =>
-      calculateAccountTotals(account, allInvestments, merOverrides)
+      calculateAccountTotals(
+        account.holdings || {},
+        account.balance || 0,
+        customInvestments,
+        merOverrides,
+        investmentsData
+      )
     );
-  }, [accounts, allInvestments, merOverrides]);
+  }, [accounts, customInvestments, merOverrides, investmentsData]);
 
   // Calculate combined portfolio totals
   const combinedTotals = useMemo(() => {
     const totalBalance = accounts.reduce((sum, acc) => sum + (acc.balance || 0), 0);
     const weightedMER = accountTotals.reduce((sum, totals, i) => {
-      const weight = accounts[i].balance / totalBalance;
+      const weight = totalBalance > 0 ? accounts[i].balance / totalBalance : 0;
       return sum + (totals.weightedMER * weight);
     }, 0);
-    const totalGrowth = accountTotals.reduce((sum, t) => sum + t.growthAmount, 0);
-    const totalDefensive = accountTotals.reduce((sum, t) => sum + t.defensiveAmount, 0);
+    const totalGrowth = accountTotals.reduce((sum, t) => sum + (t.totalGrowth || 0), 0);
+    const totalDefensive = accountTotals.reduce((sum, t) => sum + (t.totalDefensive || 0), 0);
 
     return {
       totalBalance,
       weightedMER: isNaN(weightedMER) ? 0 : weightedMER,
       annualFees: totalBalance * (weightedMER / 100),
-      growthPercent: totalBalance > 0 ? (totalGrowth / totalBalance) * 100 : 0,
-      defensivePercent: totalBalance > 0 ? (totalDefensive / totalBalance) * 100 : 0
+      growthPercent: totalGrowth,
+      defensivePercent: totalDefensive
     };
   }, [accounts, accountTotals]);
 
@@ -68,14 +74,19 @@ export function usePortfolio(investmentsData = {}, modelsData = {}) {
   }, [accounts.length]);
 
   // Load model into account
-  const loadModel = useCallback((accountId, modelName) => {
+  const loadModel = useCallback((accountId) => {
     const account = accounts.find(a => a.id === accountId);
     if (!account) return;
 
-    const modelKey = getModelKey(account.balance, account.riskProfile, account.isESG);
-    const allocations = getModelAllocations(modelKey, modelsData);
+    const allocations = getModelAllocations(
+      account.type,
+      account.balance,
+      account.isESG,
+      account.riskProfile.toLowerCase(),
+      modelsData
+    );
 
-    if (allocations) {
+    if (allocations && Object.keys(allocations).length > 0) {
       updateAccount(accountId, { holdings: { ...allocations } });
     }
   }, [accounts, modelsData, updateAccount]);
